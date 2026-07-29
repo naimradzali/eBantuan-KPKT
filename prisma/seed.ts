@@ -2,6 +2,9 @@
  * Generates dummy data: 10 PBT, 15 NGO, ~50 users, ~120 applications, documents, audit logs
  * Run with: bun run db:seed
  */
+import { config } from "dotenv";
+config();
+
 import { PrismaClient } from "@prisma/client";
 import { db } from "../src/lib/db";
 
