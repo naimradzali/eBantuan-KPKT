@@ -1,0 +1,231 @@
+// Sistem eBantuan-PEKB — Prisma Schema (Dummy DB for PoC)
+// Kementerian Perumahan dan Kerajaan Tempatan (KPKT)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// PBT PROFILES — Pihak Berkuasa Tempatan
+// ============================================================
+model PbtProfile {
+  pbtId         String   @id @default(cuid())
+  namaPbt       String
+  kodPbt        String   @unique
+  negeri        String
+  daerah        String
+  kategoriPbt   String   @default("majlis_perbandaran") // dewan_bandaraya | majlis_perbandaran | majlis_daerah
+  statusAkaunPbt String  @default("aktif") // aktif | dalam_semakan | tidak_aktif
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  users         User[]
+  applications  Application[]
+
+  @@map("pbt_profiles")
+}
+
+// ============================================================
+// NGO PROFILES — Pertubuhan Bukan Kerajaan
+// ============================================================
+model NgoProfile {
+  ngoId            String   @id @default(cuid())
+  namaNgo          String
+  noPendaftaranRos String   @unique
+  noAkreditasiPekb String   @unique
+  negeriOperasi    String
+  daerahOperasi    String
+  statusAkreditasi String   @default("aktif") // aktif | dalam_semakan | tamat_tempoh
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  users         User[]
+  applications  Application[]
+
+  @@map("ngo_profiles")
+}
+
+// ============================================================
+// USERS — Semua peranan pengguna sistem
+// ============================================================
+model User {
+  id               String   @id @default(cuid())
+  namaPenuh        String
+  noKadPengenalan  String   @unique
+  peranan          String   @default("pegawai_pbt") // pegawai_pbt | penilai_pbt | wakil_ngo | penilai_ngo | pegawai_kpkt | pegawai_kpkt_pusat | admin
+  pbtId            String?  // FK ke PbtProfile (jika peranan pegawai_pbt/penilai_pbt)
+  ngoId            String?  // FK ke NgoProfile (jika peranan wakil_ngo/penilai_ngo)
+  emel             String   @unique
+  noTelefon        String
+  kataLaluanHash   String   @default("password123") // simulasi sahaja
+  statusAkaun      String   @default("aktif") // aktif | tidak_aktif | disekat
+  negeri           String   @default("Wilayah Persekutuan Kuala Lumpur")
+  jawatan          String   @default("")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  pbt              PbtProfile? @relation(fields: [pbtId], references: [pbtId], onDelete: SetNull)
+  ngo              NgoProfile? @relation(fields: [ngoId], references: [ngoId], onDelete: SetNull)
+  applications     Application[]   @relation("ApplicationSubmitter")
+  reviewedApplications Application[] @relation("ApplicationReviewer")
+  auditLogs        AuditLog[]
+  notifications    Notification[]
+
+  @@map("users")
+}
+
+// ============================================================
+// APPLICATIONS — Permohonan (Trek 1 PBT & Trek 2 NGO)
+// ============================================================
+model Application {
+  applicationId        String   @id @default(cuid())
+  noRujukan            String   @unique // BP-2026-000123 / GP-2026-000456
+  trek                 String   @default("bantuan_perumahan") // bantuan_perumahan | geran_pekb
+  entitiPemohonJenis   String   @default("pbt") // pbt | ngo
+  pbtId                String?
+  ngoId                String?
+  disediakanOlehPenggunaId String
+  penerimaId           String?
+
+  // Maklumat penerima (benar-benar penerima manfaat)
+  namaPenerima         String
+  noKpPenerima         String
+  alamatPenerima       String
+  negeriPenerima       String
+  daerahPenerima       String
+  telefonPenerima      String
+
+  // Maklumat isi rumah
+  pendapatanIsiRumah   Float    @default(0)
+  bilanganTanggungan   Int      @default(0)
+  statusOku            Boolean  @default(false)
+  jenisOku             String   @default("") // fizikal | penglihatan | pendengaran | mental | lain
+  statusPemilikanRumah String   @default("sewa") // milik_sendiri | sewa | tanah_orang
+  jenisRumah           String   @default("papan") // papan | batu | kayu | campuran
+
+  // Kategori bantuan
+  kategoriBantuan      String   @default("baik_pulih_rumah") // baik_pulih_rumah | rumah_mesra_rakyat | geran_ekonomi | bantuan_sara_hidup
+    // Medan khusus Trek 1 PBT
+  zonMukim             String   @default("")
+  noRujukanPemeriksaan String   @default("")
+  nilaiAnggaranKerja   Float    @default(0)
+    // Medan khusus Trek 2 NGO
+  kawasanOperasi       String   @default("")
+  cadanganPelanGuna   String   @default("") // pelan penggunaan geran
+  nilaiGeranDipohon    Float    @default(0)
+  namaPerniagaan       String   @default("") // bagi geran ekonomi
+  jenisPerniagaan      String   @default("") // makanan | jahitan | pertanian | lain
+
+  // AI outputs
+  skorKelayakanAi      Int      @default(0) // 0-100
+  statusPertindihanAi  String   @default("tiada_pertindihan") // tiada_pertindihan | disyaki_pertindihan | disahkan_pertindihan
+  notaAi               String   @default("")
+  cadanganAi           String   @default("") // lulus | tolak | semak_semula
+  sebabCadanganAi      String   @default("")
+
+  // Status & aliran kelulusan
+  statusPermohonan     String   @default("draf") // draf | dihantar | semakan_pbt_ngo | semakan_daerah | semakan_negeri | diluluskan | ditolak | dipulangkan
+  peringkatSemasa     String   @default("draf") // draf | pbt | kpkt_daerah | kpkt_negeri | selesai
+  notaPenilai          String   @default("")
+  alasanPenolakan      String   @default("")
+
+  tarikhPermohonan     DateTime?
+  tarikhDiluluskan     DateTime?
+  tarikhDicipta        DateTime @default(now())
+  tarikhDikemaskini    DateTime @updatedAt
+
+  // Relations
+  pbt                  PbtProfile? @relation(fields: [pbtId], references: [pbtId], onDelete: SetNull)
+  ngo                  NgoProfile? @relation(fields: [ngoId], references: [ngoId], onDelete: SetNull)
+  disediakanOleh       User        @relation("ApplicationSubmitter", fields: [disediakanOlehPenggunaId], references: [id])
+  diSemakOleh          User[]      @relation("ApplicationReviewer")
+  documents            Document[]
+  auditLogs            AuditLog[]
+  notifications        Notification[]
+
+  @@index([trek])
+  @@index([statusPermohonan])
+  @@index([noKpPenerima])
+  @@map("applications")
+}
+
+// ============================================================
+// DOCUMENTS — Dokumen sokongan permohonan
+// ============================================================
+model Document {
+  documentId        String   @id @default(cuid())
+  applicationId     String
+  jenisDokumen      String   @default("lain_lain") // mykad | slip_gaji | kad_oku | geran_tanah | gambar_rumah | laporan_tapak | pelan_perniagaan | lain_lain
+  namaFail          String
+  saizFail          Int      @default(0)
+  jenisMime         String   @default("application/pdf")
+  statusPengesahanAi String   @default("belum_disemak") // belum_disemak | sah | tidak_lengkap | mencurigakan
+  dataEkstrakAi     String   @default("{}") // JSON string
+  catatanAi         String   @default("")
+  tarikhMuatNaik    DateTime @default(now())
+
+  application       Application @relation(fields: [applicationId], references: [applicationId], onDelete: Cascade)
+
+  @@map("documents")
+}
+
+// ============================================================
+// AUDIT LOGS — Log audit tidak boleh diubah
+// ============================================================
+model AuditLog {
+  logId          String   @id @default(cuid())
+  applicationId  String?
+  penggunaId     String
+  tindakan       String   // hantar_permohonan | lulus | tolak | pulangkan | muat_naik_dokumen | cipta_draf | log_masuk | kemaskini | cipta_pengguna
+  perincian      String   @default("")
+  capMasa        DateTime @default(now())
+
+  application    Application? @relation(fields: [applicationId], references: [applicationId], onDelete: SetNull)
+  pengguna       User         @relation(fields: [penggunaId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId])
+  @@index([penggunaId])
+  @@map("audit_logs")
+}
+
+// ============================================================
+// NOTIFICATIONS — Notifikasi dalam sistem
+// ============================================================
+model Notification {
+  notifikasiId   String   @id @default(cuid())
+  penggunaId     String
+  applicationId  String?
+  tajuk          String
+  mesej          String
+  jenis          String   @default("sistem") // sistem | emel | sms | status
+  dibaca         Boolean  @default(false)
+  tarikhDicipta  DateTime @default(now())
+
+  pengguna       User         @relation(fields: [penggunaId], references: [id], onDelete: Cascade)
+  application    Application? @relation(fields: [applicationId], references: [applicationId], onDelete: SetNull)
+
+  @@index([penggunaId])
+  @@map("notifications")
+}
+
+// ============================================================
+// AI CONFIG — Konfigurasi ambang skor AI (admin)
+// ============================================================
+model AiConfig {
+  id             Int      @id @default(1)
+  ambangSkorLulus Int     @default(70) // skor minimum untuk cadangan lulus
+  ambangSkorSemak Int     @default(50) // skor minimum untuk cadangan semak semula
+  modelAi        String   @default("glm-4.5")
+  enableAiScreening Boolean @default(true)
+  enableAiDocVerify Boolean @default(true)
+  enableAiChatbot Boolean  @default(true)
+  enableAiFraud   Boolean  @default(true)
+  tarikhKemaskini DateTime @updatedAt
+
+  @@map("ai_config")
+}
